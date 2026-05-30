@@ -241,64 +241,161 @@ function restoreMedia(container) {
  * @param {string} showName – matched show name (lowercase)
  */
 function blurYouTubePlayer(showName) {
-  const player = document.querySelector(YT_PLAYER_SELECTOR);
-  if (!player) return;
-  if (player.dataset.ssBlurred === 'true') return;
+  // Remove any existing overlay host first
+  const existingHost = document.getElementById('ss-yt-overlay-host');
+  if (existingHost) existingHost.remove();
 
-  player.dataset.ssBlurred = 'true';
-  player.style.filter      = 'blur(14px)';
-  player.style.transition  = 'filter 0.35s ease';
+  // Find the actual <video> element to pause/mute
+  const player =
+    document.querySelector('#movie_player video') ||
+    document.querySelector('video.html5-main-video') ||
+    document.querySelector('video');
 
-  // Pause + mute the actual <video> tag inside the player
-  muteAndPauseMedia(player);
+  const playerContainer =
+    document.querySelector('#movie_player') ||
+    document.querySelector('ytd-player') ||
+    document.querySelector('#player-container');
 
-  // Also use the YouTube player API to pause if available
-  // ytd-player exposes .pauseVideo() on the element
-  const ytdPlayer = document.querySelector('ytd-player');
-  if (ytdPlayer && typeof ytdPlayer.pauseVideo === 'function') {
-    ytdPlayer.pauseVideo();
+  if (!playerContainer) {
+    console.warn('[SpoilerShield] Could not find YouTube player container.');
+    return;
+  }
+  if (playerContainer.dataset.ssBlurred === 'true') return;
+  playerContainer.dataset.ssBlurred = 'true';
+
+  // Pause and mute immediately
+  if (player) {
+    player.muted = true;
+    player.pause();
+    // Keep it paused if YouTube tries to resume
+    player.addEventListener('play', () => { player.pause(); }, { once: true });
+    console.log('[SpoilerShield] Video paused and muted.');
   }
 
   const displayName = titleCase(showName);
 
-  // The player's wrapper needs relative positioning for the overlay
-  const wrapper = player.closest('#player-container, #player-container-inner, ytd-player') || player.parentElement;
-  if (wrapper && (!wrapper.style.position || wrapper.style.position === 'static')) {
-    wrapper.style.position = 'relative';
-  }
+  // ── Shadow DOM approach ───────────────────────────────────────────────────
+  // YouTube sets transform/isolation on many ancestors which breaks
+  // fixed positioning. A Shadow DOM host sits outside those contexts
+  // and lets us render with our own isolated styles.
+  // ─────────────────────────────────────────────────────────────────────────
+  const host = document.createElement('div');
+  host.id = 'ss-yt-overlay-host';
 
-  const overlay = document.createElement('div');
-  overlay.className          = 'ss-post-overlay';
-  overlay.style.position     = 'absolute';
-  overlay.style.inset        = '0';
-  overlay.style.zIndex       = '9999';
-  overlay.setAttribute('role', 'alertdialog');
-  overlay.setAttribute('aria-label', `Spoiler for ${displayName}. Click to reveal.`);
+  // The host itself must cover the screen
+  Object.assign(host.style, {
+    position:  'fixed',
+    top:       '0',
+    left:      '0',
+    width:     '100vw',
+    height:    '100vh',
+    zIndex:    '2147483647',
+    pointerEvents: 'all',
+  });
 
-  overlay.innerHTML = `
-    <div class="ss-post-overlay-inner">
-      <span class="ss-post-icon">🛡</span>
-      <span class="ss-post-show-name">${escapeHtml(displayName)}</span>
-      <span class="ss-post-title">⚠ Spoiler Hidden</span>
-      <span class="ss-post-question">This video may contain spoilers. Watch anyway?</span>
-      <button class="ss-reveal-btn">Yes, watch it</button>
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+
+      .overlay {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(5, 5, 8, 0.95);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2147483647;
+        font-family: 'Courier New', Courier, monospace;
+      }
+
+      .card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        background: linear-gradient(145deg, #18181c 0%, #111114 100%);
+        border: 1px solid rgba(124,106,247,0.5);
+        border-radius: 14px;
+        padding: 28px 36px 24px;
+        min-width: 260px;
+        box-shadow: 0 0 60px rgba(124,106,247,0.2), 0 16px 48px rgba(0,0,0,0.8);
+      }
+
+      .icon  { font-size: 36px; }
+
+      .pill {
+        background: rgba(124,106,247,0.15);
+        border: 1px solid rgba(124,106,247,0.4);
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        color: #a99ff5;
+        text-transform: uppercase;
+      }
+
+      .title {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #f0f0f5;
+        text-transform: uppercase;
+      }
+
+      .question {
+        font-size: 11px;
+        color: #6c6c7e;
+        letter-spacing: 0.04em;
+      }
+
+      .btn {
+        margin-top: 6px;
+        cursor: pointer;
+        background: rgba(124,106,247,0.18);
+        border: 1px solid rgba(124,106,247,0.5);
+        border-radius: 8px;
+        padding: 9px 24px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: #a99ff5;
+        transition: background 0.2s, border-color 0.2s;
+      }
+      .btn:hover { background: rgba(124,106,247,0.35); border-color: rgba(124,106,247,0.9); color: #fff; }
+      .btn:active { transform: scale(0.97); }
+    </style>
+
+    <div class="overlay">
+      <div class="card">
+        <span class="icon">🛡</span>
+        <span class="pill">${escapeHtml(displayName)}</span>
+        <span class="title">⚠ Spoiler Hidden</span>
+        <span class="question">This video may contain spoilers. Watch anyway?</span>
+        <button class="btn">Yes, watch it</button>
+      </div>
     </div>
   `;
 
-  overlay.querySelector('.ss-reveal-btn').addEventListener('click', (e) => {
+  shadow.querySelector('.btn').addEventListener('click', (e) => {
     e.stopPropagation();
-    // Remove blur from player
-    player.style.filter      = '';
-    player.dataset.ssBlurred = 'false';
-    // Restore audio/video
-    restoreMedia(player);
-    overlay.remove();
+    playerContainer.dataset.ssBlurred = 'false';
+    if (player) {
+      player.muted = false;
+      player.play().catch(() => {});
+    }
+    host.remove();
     console.log('[SpoilerShield] YouTube player revealed by user.');
   }, { once: true });
 
-  // Append to wrapper so it sits over the player
-  (wrapper || player).appendChild(overlay);
-  console.log(`[SpoilerShield] YouTube player blurred for show: "${displayName}"`);
+  document.documentElement.appendChild(host); // append to <html>, not <body>
+  console.log(`[SpoilerShield] Shadow DOM overlay injected for: "${displayName}"`);
 }
 
 // ── FIX 5: Replace thumbnail image src ───────────────────────────────────────
