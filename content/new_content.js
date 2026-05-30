@@ -59,10 +59,7 @@ const PLATFORM_BLUR_SELECTORS = {
 // instead of (or in addition to) the post card selectors.
 const YT_PLAYER_SELECTOR = '#movie_player';
 
-const GEMINI_API_KEY = 'AIzaSyD3ZzkwGPZyrKdChe8OclF4_GO9pnXR3Zs';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-const DEBOUNCE_DELAY = 400;
 
 // ── Module State ──────────────────────────────────────────────────────────────
 
@@ -121,28 +118,35 @@ function findMentionedShow(text) {
 // ── 5. Stage 2 — Gemini Spoiler Check ────────────────────────────────────────
 
 async function askGemini(text, showName) {
+  const { geminiApiKey } = await chrome.storage.sync.get({ geminiApiKey: '' });
+  if (!geminiApiKey) {
+    console.warn('[SpoilerShield] No API key set — open popup to add one.');
+    return false;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
   const trimmed = text.trim().slice(0, 1500);
 
   const prompt =
-`You are a spoiler detection assistant for a browser extension.
-The user has NOT yet watched "${showName}" and wants to avoid spoilers.
-Analyze the following text and decide: does it reveal spoilers about "${showName}"?
-A spoiler includes: character deaths, plot twists, season or series endings,
-villain reveals, relationship outcomes, or any major story event.
+  `You are a spoiler detection assistant for a browser extension.
+  The user has NOT yet watched "${showName}" and wants to avoid spoilers.
+  Analyze the following text and decide: does it reveal spoilers about "${showName}"?
+  A spoiler includes: character deaths, plot twists, season or series endings,
+  villain reveals, relationship outcomes, or any major story event.
 
-Reply with ONE word only:
-- YES if the text contains spoilers about "${showName}"
-- NO  if it does not
+  Reply with ONE word only:
+  - YES if the text contains spoilers about "${showName}"
+  - NO  if it does not
 
-Do not explain. Do not add punctuation. One word only.
+  Do not explain. Do not add punctuation. One word only.
 
-Text:
+  Text:
 ${trimmed}`;
 
   console.log(`[SpoilerShield] Asking Gemini about "${showName}"…`);
 
   try {
-    const response = await fetch(GEMINI_API_URL, {
+    const response = await fetch(url, {
       method : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body   : JSON.stringify({
