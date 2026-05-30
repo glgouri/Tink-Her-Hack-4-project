@@ -29,7 +29,7 @@
         "https://old.reddit.com/*",
         "https://generativelanguage.googleapis.com/*"
       ],
-      "js": ["content/new_content-1.js"],
+      "js": ["content/new_content-2.js"],
       "css": ["styles/style.css"],
       "run_at": "document_idle"
     }
